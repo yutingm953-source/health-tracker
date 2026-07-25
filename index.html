@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>健康记录</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f0f7f4;min-height:100vh;}
+button{cursor:pointer;font-family:inherit;}
+input,select{font-family:inherit;outline:none;}
+.hidden{display:none!important;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+var GR="#2d9e6b",GRL="#e8f7f0",GRM="#a8ddc3";
+var TX="#1a2e24",TXM="#4a7060",TXL="#8aab9a";
+var RD="#e05555",BL="#4a90d9",BD="#e0efe8",WH="#ffffff";
+
+var TODAY=new Date().toISOString().slice(0,10);
+var FOOD_DB=[
+  {name:"白米饭(100g)",cal:116},{name:"鸡胸肉(100g)",cal:133},{name:"鸡蛋(1个)",cal:72},
+  {name:"牛奶(250ml)",cal:135},{name:"苹果(1个)",cal:80},{name:"香蕉(1根)",cal:90},
+  {name:"面条(熟100g)",cal:110},{name:"猪肉(100g)",cal:215},{name:"豆腐(100g)",cal:80},
+  {name:"西兰花(100g)",cal:33},{name:"沙拉(1份)",cal:150},{name:"面包(1片)",cal:80},
+];
+var EXERCISE_DB=[
+  {name:"跑步30min",cal:280},{name:"走路30min",cal:120},{name:"骑车30min",cal:200},
+  {name:"游泳30min",cal:250},{name:"瑜伽30min",cal:100},{name:"跳绳15min",cal:150},
+  {name:"力量训练30min",cal:180},{name:"HIIT20min",cal:220},
+];
+
+var data={
+  profile:{height:160,weight:60,targetWeight:55,age:28,gender:"female",activityLevel:"moderate",waterTarget:2000},
+  logs:{}
+};
+
+try{var saved=localStorage.getItem("ht3");if(saved)data=JSON.parse(saved);}catch(e){}
+
+function save(){try{localStorage.setItem("ht3",JSON.stringify(data));}catch(e){}}
+function uuid(){return Math.random().toString(36).slice(2);}
+function fmtN(n){return Number(n).toFixed(1);}
+
+var state={tab:"today",date:TODAY,modal:null,form:{}};
+
+function getLog(){return data.logs[state.date]||{weight:null,water:0,foods:[],exercises:[]};}
+
+function calcBMR(){
+  var p=data.profile,log=getLog();
+  var w=log.weight||p.weight;
+  var b=p.gender==="female"?(10*w+6.25*p.height-5*p.age-161):(10*w+6.25*p.height-5*p.age+5);
+  var mult={sedentary:1.2,light:1.375,moderate:1.55,active:1.725,veryActive:1.9};
+  return Math.round(b*(mult[p.activityLevel]||1.55));
+}
+
+function updateLog(fn){
+  var prev=data.logs[state.date]||{weight:null,water:0,foods:[],exercises:[]};
+  data.logs[state.date]=fn(prev);
+  save();render();
+}
+
+function h(tag,attrs,children){
+  var el=document.createElement(tag);
+  for(var k in attrs){
+    if(k==="style"&&typeof attrs[k]==="object"){Object.assign(el.style,attrs[k]);}
+    else if(k.startsWith("on")){el.addEventListener(k.slice(2).toLowerCase(),attrs[k]);}
+    else if(k==="className"){el.className=attrs[k];}
+    else{el.setAttribute(k,attrs[k]);}
+  }
+  if(!children)return el;
+  var arr=Array.isArray(children)?children:[children];
+  arr.forEach(function(c){
+    if(c==null||c===false)return;
+    if(typeof c==="string"||typeof c==="number"){el.appendChild(document.createTextNode(String(c)));}
+    else{el.appendChild(c);}
+  });
+  return el;
+}
+
+function card(children,extra){
+  return h("div",{style:Object.assign({background:WH,borderRadius:"18px",padding:"16px",marginBottom:"12px",boxShadow:"0 2px 12px rgba(45,158,107,0.08)"},extra||{})},children);
+}
+
+function btn(text,onClick,color,full,small){
+  return h("button",{
+    style:{background:color||GR,color:"white",border:"none",borderRadius:"10px",padding:small?"6px 14px":"10px 20px",fontSize:small?"12px":"14px",fontWeight:"600",width:full?"100%":"auto"},
+    onClick:onClick
+  },[text]);
+}
+
+function gbtn(text,onClick,small){
+  return h("button",{
+    style:{background:GRL,color:GR,border:"none",borderRadius:"10px",padding:small?"6px 14px":"10px 20px",fontSize:small?"12px":"14px",fontWeight:"500"},
+    onClick:onClick
+  },[text]);
+}
+
+function inp(label,value,unit,type,onChange,placeholder,step){
+  var wrap=h("div",{style:{marginBottom:"12px"}},[]);
+  if(label){wrap.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[label]));}
+  var row=h("div",{style:{display:"flex",alignItems:"center",border:"1px solid "+BD,borderRadius:"10px",overflow:"hidden"}},[]);
+  var input=h("input",{type:type||"text",value:value||"",placeholder:placeholder||"",style:{flex:"1",border:"none",padding:"10px 12px",fontSize:"14px",color:TX}});
+  if(step)input.setAttribute("step",step);
+  input.addEventListener("input",function(e){if(onChange)onChange(e.target.value);});
+  row.appendChild(input);
+  if(unit){row.appendChild(h("span",{style:{padding:"0 12px",fontSize:"12px",color:TXL,background:GRL}},[unit]));}
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function renderModal(){
+  var m=state.modal,f=state.form;
+  if(!m)return null;
+
+  var content=[];
+
+  if(m==="weight"){
+    var wi=inp("今日体重",f.weight,"kg","number",function(v){state.form.weight=v;renderModal_update();},"0.0","0.1");
+    var row=h("div",{style:{display:"flex",gap:"8px",marginTop:"8px"}},[
+      btn("确认",function(){
+        if(state.form.weight){
+          updateLog(function(l){return Object.assign({},l,{weight:Number(state.form.weight)});});
+          state.modal=null;state.form={};
+        }
+      },GR,true),
+      gbtn("取消",function(){state.modal=null;state.form={};render();})
+    ]);
+    content=[wi,row];
+  }
+
+  if(m==="food"||m==="exercise"){
+    var isFood=m==="food";
+    var DB=isFood?FOOD_DB:EXERCISE_DB;
+    var typeBtns=h("div",{style:{display:"flex",gap:"4px",marginBottom:"12px"}},[
+      h("button",{style:{flex:"1",padding:"8px",borderRadius:"10px",fontSize:"13px",border:"none",background:(f.type||"quick")==="quick"?GR:GRL,color:(f.type||"quick")==="quick"?"white":GR,fontWeight:"600"},onClick:function(){state.form=Object.assign({},state.form,{type:"quick",name:"",cal:""});renderModal_update();}},["快速选择"]),
+      h("button",{style:{flex:"1",padding:"8px",borderRadius:"10px",fontSize:"13px",border:"none",background:(f.type||"quick")==="custom"?GR:GRL,color:(f.type||"quick")==="custom"?"white":GR,fontWeight:"600"},onClick:function(){state.form=Object.assign({},state.form,{type:"custom",name:"",cal:""});renderModal_update();}},["自定义"]),
+    ]);
+
+    var quickGrid=null;
+    if((f.type||"quick")==="quick"){
+      quickGrid=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"12px",maxHeight:"220px",overflowY:"auto"}},
+        DB.map(function(item){
+          var selected=f.name===item.name;
+          return h("button",{
+            style:{padding:"8px 10px",borderRadius:"10px",fontSize:"12px",border:"2px solid "+(selected?GR:BD),background:selected?GRL:WH,color:selected?GR:TX,textAlign:"left"},
+            onClick:function(){state.form=Object.assign({},state.form,{name:item.name,cal:item.cal});renderModal_update();}
+          },[
+            h("div",{style:{fontWeight:"600"}},[item.name]),
+            h("div",{style:{color:TXL,marginTop:"2px"}},[isFood?(item.cal+" kcal"):("消耗 "+item.cal+" kcal")])
+          ]);
+        })
+      );
+    }
+
+    var customName=null;
+    if(f.type==="custom"){
+      customName=inp(isFood?"食物名称":"运动名称",f.name,"",undefined,function(v){state.form.name=v;renderModal_update();},isFood?"比如：炸鸡腿":"比如：篮球30min");
+    }
+
+    var calInp=inp(isFood?"热量":"消耗热量",f.cal,"kcal","number",function(v){state.form.cal=v;renderModal_update();});
+
+    var addRow=h("div",{style:{display:"flex",gap:"8px",marginTop:"8px"}},[
+      btn("添加",function(){
+        if(state.form.name&&state.form.cal){
+          var key=isFood?"foods":"exercises";
+          updateLog(function(l){
+            var arr=(l[key]||[]).concat([{id:uuid(),name:state.form.name,cal:Number(state.form.cal)}]);
+            var obj={};obj[key]=arr;
+            return Object.assign({},l,obj);
+          });
+          state.modal=null;state.form={};
+        }
+      },GR,true),
+      gbtn("取消",function(){state.modal=null;state.form={};render();})
+    ]);
+
+    content=[typeBtns,quickGrid,customName,calInp,addRow].filter(Boolean);
+  }
+
+  var overlay=h("div",{style:{position:"fixed",inset:"0",background:"rgba(0,0,0,0.35)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:"100"},onClick:function(){state.modal=null;state.form={};render();}},[]);
+  var panel=h("div",{style:{background:WH,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:"480px",padding:"24px",maxHeight:"80vh",overflowY:"auto"}},
+    [h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}},[
+      h("h3",{style:{fontSize:"16px",fontWeight:"700",color:TX}},[m==="weight"?"记录体重":m==="food"?"记录饮食":"记录运动"]),
+      h("button",{style:{background:"none",border:"none",fontSize:"20px",color:TXL},onClick:function(){state.modal=null;state.form={};render();}},[" ×"])
+    ])].concat(content)
+  );
+  panel.addEventListener("click",function(e){e.stopPropagation();});
+  overlay.appendChild(panel);
+  return overlay;
+}
+
+function renderModal_update(){
+  var old=document.getElementById("modal-container");
+  if(old)old.remove();
+  var m=renderModal();
+  if(m){
+    m.id="modal-container";
+    document.getElementById("app").appendChild(m);
+  }
+}
+
+function renderWeightChart(history){
+  if(history.length<2){
+    return h("div",{style:{textAlign:"center",color:TXL,fontSize:"12px",padding:"20px 0"}},["记录更多体重数据查看趋势"]);
+  }
+  var W=300,H=70;
+  var vals=history.map(function(p){return p.v;});
+  var mn=Math.min.apply(null,vals)-0.5,mx=Math.max.apply(null,vals)+0.5;
+  var xs=history.map(function(_,i){return i/(history.length-1)*W;});
+  var ys=history.map(function(p){return H-(p.v-mn)/(mx-mn)*H;});
+  var path="M"+xs.map(function(x,i){return x.toFixed(1)+","+ys[i].toFixed(1);}).join(" L");
+
+  var svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("viewBox","0 0 "+W+" "+(H+20));
+  svg.style.width="100%";svg.style.height=(H+20)+"px";
+
+  var defs=document.createElementNS("http://www.w3.org/2000/svg","defs");
+  var grad=document.createElementNS("http://www.w3.org/2000/svg","linearGradient");
+  grad.setAttribute("id","g1");grad.setAttribute("x1","0");grad.setAttribute("y1","0");grad.setAttribute("x2","0");grad.setAttribute("y2","1");
+  var s1=document.createElementNS("http://www.w3.org/2000/svg","stop");s1.setAttribute("offset","0%");s1.setAttribute("stop-color",GR);s1.setAttribute("stop-opacity","0.2");
+  var s2=document.createElementNS("http://www.w3.org/2000/svg","stop");s2.setAttribute("offset","100%");s2.setAttribute("stop-color",GR);s2.setAttribute("stop-opacity","0");
+  grad.appendChild(s1);grad.appendChild(s2);defs.appendChild(grad);svg.appendChild(defs);
+
+  var pathEl=document.createElementNS("http://www.w3.org/2000/svg","path");
+  pathEl.setAttribute("d",path);pathEl.setAttribute("fill","none");pathEl.setAttribute("stroke",GR);pathEl.setAttribute("stroke-width","2");pathEl.setAttribute("stroke-linecap","round");
+  svg.appendChild(pathEl);
+
+  history.forEach(function(p,i){
+    var c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+    c.setAttribute("cx",xs[i]);c.setAttribute("cy",ys[i]);c.setAttribute("r","3");c.setAttribute("fill",GR);
+    svg.appendChild(c);
+    var t=document.createElementNS("http://www.w3.org/2000/svg","text");
+    t.setAttribute("x",xs[i]);t.setAttribute("y",H+16);t.setAttribute("text-anchor","middle");t.setAttribute("font-size","9");t.setAttribute("fill",TXL);
+    t.textContent=p.label;svg.appendChild(t);
+  });
+  return svg;
+}
+
+function render(){
+  var app=document.getElementById("app");
+  app.innerHTML="";
+
+  var log=getLog();
+  var bmr=calcBMR();
+  var totalFood=(log.foods||[]).reduce(function(s,f){return s+Number(f.cal);},0);
+  var totalEx=(log.exercises||[]).reduce(function(s,e){return s+Number(e.cal);},0);
+  var net=totalFood-totalEx;
+  var diff=(log.weight||data.profile.weight)-data.profile.targetWeight;
+  var pct=Math.min(100,bmr>0?(net/bmr)*100:0);
+
+  var weightHistory=Object.entries(data.logs)
+    .filter(function(e){return e[1].weight;})
+    .sort(function(a,b){return a[0].localeCompare(b[0]);})
+    .slice(-14)
+    .map(function(e){return {v:e[1].weight,label:e[0].slice(5)};});
+
+  // Header
+  var headerText=log.weight?(log.weight+" kg"):"记录今日体重";
+  var diffText=diff>0?("距目标还差 "+fmtN(diff)+"kg"):diff<0?("已超目标 "+fmtN(Math.abs(diff))+"kg"):"已达目标 🎉";
+
+  var header=h("div",{style:{background:"linear-gradient(135deg,#2d9e6b,#1a7a4e)",padding:"24px 20px 32px",color:"white"}},[
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},[
+      h("div",{},[
+        h("p",{style:{fontSize:"12px",opacity:"0.8",marginBottom:"4px"}},["🌿 健康记录"]),
+        h("h1",{style:{fontSize:"28px",fontWeight:"700"}},[headerText]),
+        log.weight?h("p",{style:{fontSize:"12px",opacity:"0.8",marginTop:"4px"}},[diffText]):null,
+      ]),
+      h("div",{style:{textAlign:"right"}},[
+        h("p",{style:{fontSize:"11px",opacity:"0.7"}},["基础代谢"]),
+        h("p",{style:{fontSize:"20px",fontWeight:"700"}},[String(bmr)]),
+        h("p",{style:{fontSize:"11px",opacity:"0.7"}},["kcal/天"]),
+      ])
+    ]),
+    h("div",{style:{marginTop:"16px",background:"rgba(255,255,255,0.15)",borderRadius:"10px",overflow:"hidden",height:"6px"}},[
+      h("div",{style:{height:"100%",background:"white",borderRadius:"10px",width:pct+"%"}})
+    ]),
+    h("div",{style:{display:"flex",justifyContent:"space-between",marginTop:"6px",fontSize:"11px",opacity:"0.8"}},[
+      h("span",{},["摄入 "+totalFood+" kcal"]),
+      h("span",{},["净值 "+net+" kcal"]),
+      h("span",{},["消耗 "+totalEx+" kcal"]),
+    ])
+  ]);
+
+  // Tabs
+  var tabs=h("div",{style:{display:"flex",gap:"4px",background:WH,borderRadius:"14px",padding:"4px",boxShadow:"0 2px 12px rgba(0,0,0,0.08)",marginBottom:"16px"}},
+    [{k:"today",l:"今日"},{k:"trend",l:"趋势"},{k:"profile",l:"设置"}].map(function(t){
+      return h("button",{
+        style:{flex:"1",padding:"8px",borderRadius:"10px",fontSize:"13px",fontWeight:"600",border:"none",background:state.tab===t.k?GR:"transparent",color:state.tab===t.k?"white":TXM},
+        onClick:function(){state.tab=t.k;render();}
+      },[t.l]);
+    })
+  );
+
+  var content=[];
+
+  if(state.tab==="today"){
+    // Date picker
+    var dateRow=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+      (function(){var i=document.createElement("input");i.type="date";i.value=state.date;i.style.cssText="border:1px solid "+BD+";border-radius:10px;padding:6px 10px;font-size:13px;color:"+TX+";background:white;font-family:inherit;";i.addEventListener("change",function(){state.date=i.value;render();});return i;})(),
+      state.date!==TODAY?gbtn("回到今天",function(){state.date=TODAY;render();},true):null
+    ]);
+    content.push(dateRow);
+
+    // Weight card
+    content.push(card([
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},[
+        h("div",{},[
+          h("p",{style:{fontSize:"12px",color:TXL,marginBottom:"4px"}},["⚖️ 今日体重"]),
+          h("p",{style:{fontSize:"24px",fontWeight:"700",color:log.weight?TX:TXL}},[log.weight?(log.weight+" kg"):"未记录"]),
+        ]),
+        btn("记录",function(){state.modal="weight";state.form={weight:log.weight||""};render();renderModal_update();})
+      ])
+    ]));
+
+    // Water card
+    var waterDrops=h("div",{style:{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap",marginTop:"10px"}},
+      (function(){
+        var arr=[];var pct2=Math.min(1,(log.water||0)/(data.profile.waterTarget||2000));
+        for(var i=0;i<8;i++){var sp=document.createElement("span");sp.style.fontSize="20px";sp.style.opacity=i/8<pct2?"1":"0.2";sp.textContent="💧";arr.push(sp);}
+        arr.push(h("span",{style:{fontSize:"12px",color:TXM,marginLeft:"4px"}},[(log.water||0)+"/"+(data.profile.waterTarget||2000)+"ml"]));
+        return arr;
+      })()
+    );
+    content.push(card([
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},[
+        h("p",{style:{fontSize:"12px",color:TXL}},["💧 饮水记录"]),
+        h("div",{style:{display:"flex",gap:"6px"}},[
+          gbtn("-200ml",function(){updateLog(function(l){return Object.assign({},l,{water:Math.max(0,(l.water||0)-200)});});},true),
+          gbtn("+200ml",function(){updateLog(function(l){return Object.assign({},l,{water:(l.water||0)+200});});},true),
+        ])
+      ]),
+      waterDrops
+    ]));
+
+    // Food card
+    var foodItems=(log.foods||[]).map(function(f){
+      return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid "+BD}},[
+        h("span",{style:{fontSize:"14px",color:TX}},[f.name]),
+        h("div",{style:{display:"flex",alignItems:"center",gap:"10px"}},[
+          h("span",{style:{fontSize:"13px",color:TXM,fontWeight:"600"}},[f.cal+" kcal"]),
+          (function(){var b=h("button",{style:{background:"none",border:"none",color:TXL,fontSize:"14px"}},["✕"]);b.onclick=function(){updateLog(function(l){return Object.assign({},l,{foods:(l.foods||[]).filter(function(x){return x.id!==f.id;})});});};return b;})()
+        ])
+      ]);
+    });
+    content.push(card([
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+        h("div",{},[
+          h("p",{style:{fontSize:"12px",color:TXL}},["🍱 今日饮食"]),
+          h("p",{style:{fontSize:"18px",fontWeight:"700",color:TX}},[totalFood+" ",h("span",{style:{fontSize:"12px",fontWeight:"400",color:TXL}},["kcal"])]),
+        ]),
+        btn("+ 添加",function(){state.modal="food";state.form={type:"quick",name:"",cal:""};render();renderModal_update();})
+      ]),
+      foodItems.length===0?h("p",{style:{fontSize:"12px",color:TXL}},["还没有记录，吃了什么？"]):null,
+    ].concat(foodItems)));
+
+    // Exercise card
+    var exItems=(log.exercises||[]).map(function(e){
+      return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid "+BD}},[
+        h("span",{style:{fontSize:"14px",color:TX}},[e.name]),
+        h("div",{style:{display:"flex",alignItems:"center",gap:"10px"}},[
+          h("span",{style:{fontSize:"13px",color:GR,fontWeight:"600"}},["消耗 "+e.cal+" kcal"]),
+          (function(){var b=h("button",{style:{background:"none",border:"none",color:TXL,fontSize:"14px"}},["✕"]);b.onclick=function(){updateLog(function(l){return Object.assign({},l,{exercises:(l.exercises||[]).filter(function(x){return x.id!==e.id;})});});};return b;})()
+        ])
+      ]);
+    });
+    content.push(card([
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}},[
+        h("div",{},[
+          h("p",{style:{fontSize:"12px",color:TXL}},["🏃 今日运动"]),
+          h("p",{style:{fontSize:"18px",fontWeight:"700",color:GR}},[totalEx+" ",h("span",{style:{fontSize:"12px",fontWeight:"400",color:TXL}},["kcal 消耗"])]),
+        ]),
+        btn("+ 添加",function(){state.modal="exercise";state.form={type:"quick",name:"",cal:""};render();renderModal_update();})
+      ]),
+      exItems.length===0?h("p",{style:{fontSize:"12px",color:TXL}},["今天运动了吗？"]):null,
+    ].concat(exItems)));
+
+    // Summary
+    content.push(card([
+      h("p",{style:{fontSize:"12px",color:TXM,marginBottom:"10px",fontWeight:"600"}},["📊 今日汇总"]),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px"}},[
+        h("div",{style:{background:WH,borderRadius:"12px",padding:"10px 8px",textAlign:"center"}},[h("p",{style:{fontSize:"11px",color:TXL,marginBottom:"4px"}},["摄入"]),h("p",{style:{fontSize:"13px",fontWeight:"700",color:TX}},[totalFood+"kcal"])]),
+        h("div",{style:{background:WH,borderRadius:"12px",padding:"10px 8px",textAlign:"center"}},[h("p",{style:{fontSize:"11px",color:TXL,marginBottom:"4px"}},["消耗"]),h("p",{style:{fontSize:"13px",fontWeight:"700",color:GR}},[totalEx+"kcal"])]),
+        h("div",{style:{background:WH,borderRadius:"12px",padding:"10px 8px",textAlign:"center"}},[h("p",{style:{fontSize:"11px",color:TXL,marginBottom:"4px"}},["净值"]),h("p",{style:{fontSize:"13px",fontWeight:"700",color:net>bmr?RD:BL}},[net+"kcal"])]),
+      ]),
+      net>bmr?h("p",{style:{fontSize:"11px",color:RD,marginTop:"10px",textAlign:"center"}},["今日摄入超过基础代谢，注意哦 ⚠️"]):null,
+      net<=bmr&&net>0?h("p",{style:{fontSize:"11px",color:GR,marginTop:"10px",textAlign:"center"}},["热量控制得不错 ✨"]):null,
+    ],{background:"linear-gradient(135deg,"+GRL+",#f5fbf8)"}));
+  }
+
+  if(state.tab==="trend"){
+    content.push(card([
+      h("p",{style:{fontSize:"13px",fontWeight:"600",color:TX,marginBottom:"4px"}},["体重趋势"]),
+      h("p",{style:{fontSize:"11px",color:TXL,marginBottom:"12px"}},["目标体重 "+data.profile.targetWeight+" kg"]),
+      renderWeightChart(weightHistory),
+      weightHistory.length>=2?h("div",{style:{display:"flex",justifyContent:"space-between",marginTop:"12px",fontSize:"12px",color:TXM}},[
+        h("span",{},["最新 "+weightHistory[weightHistory.length-1].v+" kg"]),
+        h("span",{style:{color:weightHistory[weightHistory.length-1].v<weightHistory[0].v?GR:RD}},[
+          weightHistory[weightHistory.length-1].v<weightHistory[0].v?"↓ 下降":"↑ 上升",
+          " "+fmtN(Math.abs(weightHistory[weightHistory.length-1].v-weightHistory[0].v))+" kg"
+        ])
+      ]):null,
+    ]));
+
+    var recentEntries=Object.entries(data.logs).sort(function(a,b){return b[0].localeCompare(a[0]);}).slice(0,7);
+    content.push(card([
+      h("p",{style:{fontSize:"13px",fontWeight:"600",color:TX,marginBottom:"12px"}},["近期记录"]),
+      recentEntries.length===0?h("p",{style:{fontSize:"12px",color:TXL}},["还没有记录"]):null,
+    ].concat(recentEntries.map(function(entry){
+      var d=entry[0],l=entry[1];
+      var cells=[h("span",{style:{fontSize:"13px",color:TXM}},[d])];
+      var right=[];
+      if(l.weight)right.push(h("span",{style:{color:TX,fontWeight:"600",fontSize:"12px"}},[l.weight+"kg"]));
+      if(l.water>0)right.push(h("span",{style:{color:BL,fontSize:"12px"}},["💧"+l.water+"ml"]));
+      if(l.foods&&l.foods.length>0)right.push(h("span",{style:{color:TXM,fontSize:"12px"}},["🍱"+l.foods.reduce(function(s,f){return s+Number(f.cal);},0)+"kcal"]));
+      cells.push(h("div",{style:{display:"flex",gap:"12px"}},right));
+      return h("div",{style:{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid "+BD}},cells);
+    }))));
+  }
+
+  if(state.tab==="profile"){
+    function mkInp(label,key,unit,type){
+      var i=document.createElement("input");
+      i.type=type||"number";i.value=data.profile[key]||"";
+      i.style.cssText="flex:1;border:none;padding:10px 12px;font-size:14px;color:"+TX+";font-family:inherit;outline:none;";
+      i.addEventListener("input",function(){data.profile[key]=type==="text"?i.value:Number(i.value);save();});
+      var row=h("div",{style:{display:"flex",alignItems:"center",border:"1px solid "+BD,borderRadius:"10px",overflow:"hidden"}},[i]);
+      if(unit){row.appendChild(h("span",{style:{padding:"0 12px",fontSize:"12px",color:TXL,background:GRL}},[unit]));}
+      return h("div",{style:{marginBottom:"12px"}},[
+        h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[label]),
+        row
+      ]);
+    }
+    function mkSel(label,key,options){
+      var sel=document.createElement("select");
+      sel.style.cssText="width:100%;border:1px solid "+BD+";border-radius:10px;padding:10px 12px;font-size:14px;background:white;color:"+TX+";outline:none;font-family:inherit;margin-bottom:12px;";
+      options.forEach(function(o){var opt=document.createElement("option");opt.value=o.v;opt.textContent=o.l;if(data.profile[key]===o.v)opt.selected=true;sel.appendChild(opt);});
+      sel.addEventListener("change",function(){data.profile[key]=sel.value;save();});
+      return h("div",{},[h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[label]),sel]);
+    }
+    var bmrNow=calcBMR();
+    content.push(card([
+      h("p",{style:{fontSize:"13px",fontWeight:"600",color:TX,marginBottom:"16px"}},["个人信息"]),
+      mkInp("身高","height","cm"),mkInp("当前体重","weight","kg"),mkInp("目标体重","targetWeight","kg"),
+      mkInp("年龄","age","岁"),mkInp("每日饮水目标","waterTarget","ml"),
+      mkSel("性别","gender",[{v:"female",l:"女"},{v:"male",l:"男"}]),
+      mkSel("活动水平","activityLevel",[
+        {v:"sedentary",l:"久坐不动"},{v:"light",l:"轻度运动（每周1-3次）"},
+        {v:"moderate",l:"中度运动（每周3-5次）"},{v:"active",l:"高度运动（每周6-7次）"},
+        {v:"veryActive",l:"非常活跃（体力劳动）"}
+      ]),
+    ]));
+    content.push(card([
+      h("p",{style:{fontSize:"12px",color:TXM,marginBottom:"8px",fontWeight:"600"}},["📐 你的数据"]),
+      [["基础代谢(BMR)",bmrNow+" kcal/天"],["目标体重",data.profile.targetWeight+" kg"],
+       ["还需减少",fmtN(Math.max(0,(data.profile.weight||60)-data.profile.targetWeight))+" kg"],
+       ["每日饮水目标",(data.profile.waterTarget||2000)+" ml"]
+      ].map(function(item){
+        return h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+GRM}},[
+          h("span",{style:{fontSize:"12px",color:TXM}},[item[0]]),
+          h("span",{style:{fontSize:"13px",fontWeight:"600",color:GR}},[item[1]])
+        ]);
+      })
+    ],{background:GRL}));
+  }
+
+  var main=h("div",{style:{maxWidth:"480px",margin:"0 auto",paddingBottom:"80px"}},[]);
+  main.appendChild(header);
+  var inner=h("div",{style:{padding:"0 16px",marginTop:"-16px"}},[]);
+  inner.appendChild(tabs);
+  content.forEach(function(c){if(c)inner.appendChild(c);});
+  main.appendChild(inner);
+  app.appendChild(main);
+
+  // Re-render modal if open
+  if(state.modal){renderModal_update();}
+}
+
+render();
+</script>
+</body>
+</html>
