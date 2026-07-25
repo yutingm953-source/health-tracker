@@ -117,7 +117,20 @@ function renderModal(){
   var content=[];
 
   if(m==="weight"){
-    var wi=inp("今日体重",f.weight,"kg","number",function(v){state.form.weight=v;renderModal_update();},"0.0","0.1");
+    // Create weight input directly without re-rendering on every keystroke
+    var weightWrap=h("div",{style:{marginBottom:12}},[]);
+    weightWrap.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},["今日体重"]));
+    var weightRow=h("div",{style:{display:"flex",alignItems:"center",border:"1px solid "+BD,borderRadius:"10px",overflow:"hidden"}},[]);
+    var weightInput=document.createElement("input");
+    weightInput.type="number";
+    weightInput.step="0.1";
+    weightInput.placeholder="0.0";
+    weightInput.value=f.weight||"";
+    weightInput.style.cssText="flex:1;border:none;padding:10px 12px;font-size:14px;color:"+TX+";font-family:inherit;outline:none;";
+    weightInput.addEventListener("input",function(){state.form.weight=weightInput.value;});
+    weightRow.appendChild(weightInput);
+    weightRow.appendChild(h("span",{style:{padding:"0 12px",fontSize:"12px",color:TXL,background:GRL}},["kg"]));
+    weightWrap.appendChild(weightRow);
     var row=h("div",{style:{display:"flex",gap:"8px",marginTop:"8px"}},[
       btn("确认",function(){
         if(state.form.weight){
@@ -127,7 +140,7 @@ function renderModal(){
       },GR,true),
       gbtn("取消",function(){state.modal=null;state.form={};render();})
     ]);
-    content=[wi,row];
+    content=[weightWrap,row];
   }
 
   if(m==="food"||m==="exercise"){
@@ -315,24 +328,34 @@ function render(){
     ]));
 
     // Water card
-    var waterDrops=h("div",{style:{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap",marginTop:"10px"}},
-      (function(){
-        var arr=[];var pct2=Math.min(1,(log.water||0)/(data.profile.waterTarget||2000));
-        for(var i=0;i<8;i++){var sp=document.createElement("span");sp.style.fontSize="20px";sp.style.opacity=i/8<pct2?"1":"0.2";sp.textContent="💧";arr.push(sp);}
-        arr.push(h("span",{style:{fontSize:"12px",color:TXM,marginLeft:"4px"}},[(log.water||0)+"/"+(data.profile.waterTarget||2000)+"ml"]));
-        return arr;
-      })()
-    );
-    content.push(card([
-      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},[
-        h("p",{style:{fontSize:"12px",color:TXL}},["💧 饮水记录"]),
-        h("div",{style:{display:"flex",gap:"6px"}},[
-          gbtn("-200ml",function(){updateLog(function(l){return Object.assign({},l,{water:Math.max(0,(l.water||0)-200)});});},true),
-          gbtn("+200ml",function(){updateLog(function(l){return Object.assign({},l,{water:(l.water||0)+200});});},true),
-        ])
-      ]),
-      waterDrops
-    ]));
+    var waterCard=h("div",{style:{background:WH,borderRadius:"18px",padding:"16px",marginBottom:"12px",boxShadow:"0 2px 12px rgba(45,158,107,0.08)"}},[]);
+    var waterPct=Math.min(1,(log.water||0)/(data.profile.waterTarget||2000));
+    var waterTop=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}},[
+      h("p",{style:{fontSize:"12px",color:TXL}},["💧 饮水记录"]),
+      h("div",{style:{display:"flex",gap:"6px",alignItems:"center"}},[
+        gbtn("-",function(){updateLog(function(l){return Object.assign({},l,{water:Math.max(0,(l.water||0)-(data.profile.waterUnit||200))});});},true),
+        gbtn("+"+(data.profile.waterUnit||200)+"ml",function(){updateLog(function(l){return Object.assign({},l,{water:(l.water||0)+(data.profile.waterUnit||200)});});},true),
+      ])
+    ]);
+    // Custom water input
+    var waterCustomRow=h("div",{style:{display:"flex",gap:"6px",alignItems:"center",marginBottom:"10px"}},[]);
+    var waterCustomInput=document.createElement("input");
+    waterCustomInput.type="number";waterCustomInput.placeholder="自定义ml";
+    waterCustomInput.style.cssText="flex:1;border:1px solid "+BD+";padding:6px 10px;font-size:13px;color:"+TX+";font-family:inherit;outline:none;border-radius:8px;";
+    var waterAddBtn=h("button",{style:{background:GR,color:"white",border:"none",borderRadius:"8px",padding:"6px 12px",fontSize:"12px",cursor:"pointer"}},["添加"]);
+    waterAddBtn.onclick=function(){
+      var v=Number(waterCustomInput.value);
+      if(v>0){updateLog(function(l){return Object.assign({},l,{water:(l.water||0)+v});});waterCustomInput.value="";}
+    };
+    waterCustomRow.appendChild(waterCustomInput);
+    waterCustomRow.appendChild(waterAddBtn);
+    var waterDrops=h("div",{style:{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"}},[]);
+    for(var i=0;i<8;i++){var sp=document.createElement("span");sp.style.fontSize="20px";sp.style.opacity=i/8<waterPct?"1":"0.2";sp.textContent="💧";waterDrops.appendChild(sp);}
+    waterDrops.appendChild(h("span",{style:{fontSize:"12px",color:TXM,marginLeft:"4px"}},[(log.water||0)+"/"+(data.profile.waterTarget||2000)+"ml"]));
+    waterCard.appendChild(waterTop);
+    waterCard.appendChild(waterCustomRow);
+    waterCard.appendChild(waterDrops);
+    content.push(waterCard);
 
     // Food card
     var foodItems=(log.foods||[]).map(function(f){
@@ -420,49 +443,71 @@ function render(){
   }
 
   if(state.tab==="profile"){
-    function mkInp(label,key,unit,type){
+    var mkInp=function(label,key,unit,type,step){
       var i=document.createElement("input");
       i.type=type||"number";i.value=data.profile[key]||"";
+      if(step)i.setAttribute("step",step);
       i.style.cssText="flex:1;border:none;padding:10px 12px;font-size:14px;color:"+TX+";font-family:inherit;outline:none;";
-      i.addEventListener("input",function(){data.profile[key]=type==="text"?i.value:Number(i.value);save();});
+      i.addEventListener("input",function(){
+        data.profile[key]=type==="text"?i.value:Number(i.value);
+        save();
+        // Don't call render() here - it loses focus
+      });
+      i.addEventListener("blur",function(){render();});
       var row=h("div",{style:{display:"flex",alignItems:"center",border:"1px solid "+BD,borderRadius:"10px",overflow:"hidden"}},[i]);
       if(unit){row.appendChild(h("span",{style:{padding:"0 12px",fontSize:"12px",color:TXL,background:GRL}},[unit]));}
       return h("div",{style:{marginBottom:"12px"}},[
         h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[label]),
         row
       ]);
-    }
-    function mkSel(label,key,options){
+    };
+    var mkSel=function(label,key,options){
       var sel=document.createElement("select");
-      sel.style.cssText="width:100%;border:1px solid "+BD+";border-radius:10px;padding:10px 12px;font-size:14px;background:white;color:"+TX+";outline:none;font-family:inherit;margin-bottom:12px;";
+      sel.style.cssText="width:100%;border:1px solid "+BD+";border-radius:10px;padding:10px 12px;font-size:14px;background:white;color:"+TX+";outline:none;font-family:inherit;";
       options.forEach(function(o){var opt=document.createElement("option");opt.value=o.v;opt.textContent=o.l;if(data.profile[key]===o.v)opt.selected=true;sel.appendChild(opt);});
-      sel.addEventListener("change",function(){data.profile[key]=sel.value;save();});
-      return h("div",{},[h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[label]),sel]);
-    }
+      sel.addEventListener("change",function(){data.profile[key]=sel.value;save();render();});
+      var wrap=h("div",{style:{marginBottom:"12px"}},[]);
+      wrap.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[label]));
+      wrap.appendChild(sel);
+      return wrap;
+    };
     var bmrNow=calcBMR();
-    content.push(card([
-      h("p",{style:{fontSize:"13px",fontWeight:"600",color:TX,marginBottom:"16px"}},["个人信息"]),
-      mkInp("身高","height","cm"),mkInp("当前体重","weight","kg"),mkInp("目标体重","targetWeight","kg"),
-      mkInp("年龄","age","岁"),mkInp("每日饮水目标","waterTarget","ml"),
-      mkSel("性别","gender",[{v:"female",l:"女"},{v:"male",l:"男"}]),
-      mkSel("活动水平","activityLevel",[
-        {v:"sedentary",l:"久坐不动"},{v:"light",l:"轻度运动（每周1-3次）"},
-        {v:"moderate",l:"中度运动（每周3-5次）"},{v:"active",l:"高度运动（每周6-7次）"},
-        {v:"veryActive",l:"非常活跃（体力劳动）"}
-      ]),
+    var profileCard=h("div",{style:{background:WH,borderRadius:"18px",padding:"16px",marginBottom:"12px",boxShadow:"0 2px 12px rgba(45,158,107,0.08)"}},[]);
+    profileCard.appendChild(h("p",{style:{fontSize:"13px",fontWeight:"600",color:TX,marginBottom:"16px"}},["个人信息"]));
+    profileCard.appendChild(mkInp("身高","height","cm","number"));
+    profileCard.appendChild(mkInp("当前体重","weight","kg","number","0.1"));
+    profileCard.appendChild(mkInp("目标体重","targetWeight","kg","number","0.1"));
+    profileCard.appendChild(mkInp("年龄","age","岁","number"));
+    profileCard.appendChild(mkSel("性别","gender",[{v:"female",l:"女"},{v:"male",l:"男"}]));
+    profileCard.appendChild(mkSel("活动水平","activityLevel",[
+      {v:"sedentary",l:"久坐不动"},{v:"light",l:"轻度运动（每周1-3次）"},
+      {v:"moderate",l:"中度运动（每周3-5次）"},{v:"active",l:"高度运动（每周6-7次）"},
+      {v:"veryActive",l:"非常活跃（体力劳动）"}
     ]));
-    content.push(card([
-      h("p",{style:{fontSize:"12px",color:TXM,marginBottom:"8px",fontWeight:"600"}},["📐 你的数据"]),
-      [["基础代谢(BMR)",bmrNow+" kcal/天"],["目标体重",data.profile.targetWeight+" kg"],
-       ["还需减少",fmtN(Math.max(0,(data.profile.weight||60)-data.profile.targetWeight))+" kg"],
-       ["每日饮水目标",(data.profile.waterTarget||2000)+" ml"]
-      ].map(function(item){
-        return h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+GRM}},[
-          h("span",{style:{fontSize:"12px",color:TXM}},[item[0]]),
-          h("span",{style:{fontSize:"13px",fontWeight:"600",color:GR}},[item[1]])
-        ]);
-      })
-    ],{background:GRL}));
+    content.push(profileCard);
+
+    var goalCard=h("div",{style:{background:WH,borderRadius:"18px",padding:"16px",marginBottom:"12px",boxShadow:"0 2px 12px rgba(45,158,107,0.08)"}},[]);
+    goalCard.appendChild(h("p",{style:{fontSize:"13px",fontWeight:"600",color:TX,marginBottom:"16px"}},["目标设置"]));
+    goalCard.appendChild(mkInp("每日饮水目标","waterTarget","ml","number"));
+    goalCard.appendChild(mkInp("饮水单次计量","waterUnit","ml","number"));
+    goalCard.appendChild(mkInp("每日卡路里目标","calTarget","kcal","number"));
+    goalCard.appendChild(mkInp("每日运动消耗目标","exerciseTarget","kcal","number"));
+    content.push(goalCard);
+    var summaryCard=h("div",{style:{background:GRL,borderRadius:"18px",padding:"16px",marginBottom:"12px",boxShadow:"0 2px 12px rgba(45,158,107,0.08)"}},[]);
+    summaryCard.appendChild(h("p",{style:{fontSize:"12px",color:TXM,marginBottom:"8px",fontWeight:"600"}},["📐 你的数据"]));
+    [["基础代谢(BMR)",bmrNow+" kcal/天"],
+     ["目标体重",data.profile.targetWeight+" kg"],
+     ["还需减少",fmtN(Math.max(0,(data.profile.weight||60)-data.profile.targetWeight))+" kg"],
+     ["每日饮水目标",(data.profile.waterTarget||2000)+" ml"],
+     ["每日卡路里目标",(data.profile.calTarget||bmrNow)+" kcal"],
+     ["每日运动目标",(data.profile.exerciseTarget||300)+" kcal"],
+    ].forEach(function(item){
+      summaryCard.appendChild(h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+GRM}},[
+        h("span",{style:{fontSize:"12px",color:TXM}},[item[0]]),
+        h("span",{style:{fontSize:"13px",fontWeight:"600",color:GR}},[item[1]])
+      ]));
+    });
+    content.push(summaryCard);
   }
 
   var main=h("div",{style:{maxWidth:"480px",margin:"0 auto",paddingBottom:"80px"}},[]);
