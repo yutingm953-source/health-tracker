@@ -40,6 +40,17 @@ var data={
 try{var saved=localStorage.getItem("ht3");if(saved)data=JSON.parse(saved);}catch(e){}
 
 function save(){try{localStorage.setItem("ht3",JSON.stringify(data));}catch(e){}}
+
+function showToast(msg){
+  var existing=document.getElementById("toast");
+  if(existing)existing.remove();
+  var t=document.createElement("div");
+  t.id="toast";
+  t.textContent=msg;
+  t.style.cssText="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a2e24;color:white;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;font-family:inherit;box-shadow:0 4px 12px rgba(0,0,0,0.2);";
+  document.body.appendChild(t);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},2000);
+}
 function uuid(){return Math.random().toString(36).slice(2);}
 function fmtN(n){return Number(n).toFixed(1);}
 
@@ -169,21 +180,47 @@ function renderModal(){
 
     var customName=null;
     if(f.type==="custom"){
-      customName=inp(isFood?"食物名称":"运动名称",f.name,"",undefined,function(v){state.form.name=v;renderModal_update();},isFood?"比如：炸鸡腿":"比如：篮球30min");
+      // Custom name input - no re-render on keystroke
+    var nameWrap2=h("div",{style:{marginBottom:"12px"}},[]);
+    nameWrap2.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[isFood?"食物名称":"运动名称"]));
+    var nameRow2=h("div",{style:{display:"flex",alignItems:"center",border:"1px solid "+BD,borderRadius:"10px",overflow:"hidden"}},[]);
+    var nameInput2=document.createElement("input");
+    nameInput2.type="text";nameInput2.placeholder=isFood?"比如：炸鸡腿":"比如：篮球30min";
+    nameInput2.value=f.name||"";
+    nameInput2.style.cssText="flex:1;border:none;padding:10px 12px;font-size:14px;color:"+TX+";font-family:inherit;outline:none;";
+    nameInput2.addEventListener("input",function(){state.form.name=nameInput2.value;});
+    nameRow2.appendChild(nameInput2);nameWrap2.appendChild(nameRow2);
+    customName=nameWrap2;
     }
 
-    var calInp=inp(isFood?"热量":"消耗热量",f.cal,"kcal","number",function(v){state.form.cal=v;renderModal_update();});
+    // Cal input - no re-render on keystroke
+    var calUnit=data.profile.calUnit||"kcal";
+    var calWrap=h("div",{style:{marginBottom:"12px"}},[]);
+    calWrap.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},[isFood?"热量（可选）":"消耗热量（可选）"]));
+    var calRow=h("div",{style:{display:"flex",alignItems:"center",border:"1px solid "+BD,borderRadius:"10px",overflow:"hidden"}},[]);
+    var calInput=document.createElement("input");
+    calInput.type="number";calInput.step="0.1";calInput.placeholder="不填则不计入统计";
+    calInput.value=f.cal||"";
+    calInput.style.cssText="flex:1;border:none;padding:10px 12px;font-size:14px;color:"+TX+";font-family:inherit;outline:none;";
+    calInput.addEventListener("input",function(){state.form.cal=calInput.value;});
+    calRow.appendChild(calInput);
+    calRow.appendChild(h("span",{style:{padding:"0 12px",fontSize:"12px",color:TXL,background:GRL}},[calUnit]));
+    calWrap.appendChild(calRow);
+    var calInp=calWrap;
 
     var addRow=h("div",{style:{display:"flex",gap:"8px",marginTop:"8px"}},[
       btn("添加",function(){
-        if(state.form.name&&state.form.cal){
+        if(state.form.name){
           var key=isFood?"foods":"exercises";
           updateLog(function(l){
-            var arr=(l[key]||[]).concat([{id:uuid(),name:state.form.name,cal:Number(state.form.cal)}]);
+            var arr=(l[key]||[]).concat([{id:uuid(),name:state.form.name,cal:state.form.cal?Number(state.form.cal):0,hasNoCal:!state.form.cal}]);
             var obj={};obj[key]=arr;
             return Object.assign({},l,obj);
           });
           state.modal=null;state.form={};
+          showToast(isFood?"饮食已添加 ✓":"运动已添加 ✓");
+        } else {
+          showToast("请填写名称");
         }
       },GR,true),
       gbtn("取消",function(){state.modal=null;state.form={};render();})
@@ -492,6 +529,19 @@ function render(){
     goalCard.appendChild(mkInp("饮水单次计量","waterUnit","ml","number"));
     goalCard.appendChild(mkInp("每日卡路里目标","calTarget","kcal","number"));
     goalCard.appendChild(mkInp("每日运动消耗目标","exerciseTarget","kcal","number"));
+    // Cal unit selector
+    var unitWrap=h("div",{style:{marginBottom:"12px"}},[]);
+    unitWrap.appendChild(h("label",{style:{display:"block",fontSize:"12px",color:TXM,marginBottom:"4px",fontWeight:"500"}},["热量单位"]));
+    var unitSel=document.createElement("select");
+    unitSel.style.cssText="width:100%;border:1px solid "+BD+";border-radius:10px;padding:10px 12px;font-size:14px;background:white;color:"+TX+";outline:none;font-family:inherit;";
+    [{v:"kcal",l:"kcal（千卡）"},{v:"kj",l:"kJ（千焦）"}].forEach(function(o){
+      var opt=document.createElement("option");opt.value=o.v;opt.textContent=o.l;
+      if((data.profile.calUnit||"kcal")===o.v)opt.selected=true;
+      unitSel.appendChild(opt);
+    });
+    unitSel.addEventListener("change",function(){data.profile.calUnit=unitSel.value;save();render();});
+    unitWrap.appendChild(unitSel);
+    goalCard.appendChild(unitWrap);
     content.push(goalCard);
     var summaryCard=h("div",{style:{background:GRL,borderRadius:"18px",padding:"16px",marginBottom:"12px",boxShadow:"0 2px 12px rgba(45,158,107,0.08)"}},[]);
     summaryCard.appendChild(h("p",{style:{fontSize:"12px",color:TXM,marginBottom:"8px",fontWeight:"600"}},["📐 你的数据"]));
